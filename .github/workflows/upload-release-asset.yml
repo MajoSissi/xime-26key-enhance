@@ -1,0 +1,60 @@
+name: Release xime.custom.yaml
+
+# 触发方式：
+#   1) 推送 tag（用 git/SSH 即可）→ 自动创建 Release 并上传附件
+#   2) 在 GitHub 网页上发布 Release → 上传附件
+#   3) Actions 页面手动指定 tag 重新执行（兜底）
+#
+# 附件不可变，因此会有一个固定的 sha256 值（Release 页面可看到 digest）。
+on:
+  push:
+    tags:
+      - "*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag（例如 1.0.1）"
+        required: true
+        type: string
+
+# 创建 Release / 上传附件需要写权限
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish release & upload xime.custom.yaml
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          echo "name=${{ inputs.tag || github.event.release.tag_name || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.name }}
+
+      - name: Generate SHA256 checksum
+        run: sha256sum xime.custom.yaml > xime.custom.yaml.sha256
+
+      - name: Ensure release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" --generate-notes --verify-tag
+          fi
+
+      - name: Upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.name }}" \
+            xime.custom.yaml \
+            xime.custom.yaml.sha256 \
+            --clobber
